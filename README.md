@@ -68,7 +68,7 @@ We recommend using `python=3.10` for local deployment.
 Clone this repo and install locally.
 
 ```
-git clone xxx
+git clone https://github.com/HeartMuLa/heartlib.git
 cd heartlib
 pip install -e .
 ```
