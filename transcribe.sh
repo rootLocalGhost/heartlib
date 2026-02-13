@@ -6,7 +6,7 @@ cd "$(dirname "$0")"
 
 # Example: Transcribe the song we just generated
 # Change the filename below to match your generated file
-SONG_PATH="./output/echoes_of_silence.mp3"
+SONG_PATH="./output/song.mp3"
 
 python xpu_transcribe.py \
     --music_path "$SONG_PATH" \
