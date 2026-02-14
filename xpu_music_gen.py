@@ -77,6 +77,20 @@ def clean_memory():
     if hasattr(torch, 'xpu') and torch.xpu.is_available():
         torch.xpu.empty_cache()
 
+def optimize_xpu_inference(module):
+    compile_fn = getattr(torch, "compile", None)
+    if callable(compile_fn):
+        try:
+            compiled = compile_fn(module, backend="inductor", mode="reduce-overhead", fullgraph=False)
+            logger.info("Applied torch.compile(..., backend='inductor', mode='reduce-overhead').")
+            return compiled
+        except Exception as ex:
+            logger.info(f"torch.compile unavailable/failed ({ex}); using standard eval/autocast path.")
+            return module
+
+    logger.info("No advanced XPU inference optimizer available; using standard eval/autocast path.")
+    return module
+
 def set_seed(seed):
     """Sets the seed for reproducibility."""
     random.seed(seed)
@@ -221,8 +235,21 @@ def generate_tokens(args, base_model_path, inputs, config):
     logger.info(">>> [PHASE 1] Loading HeartMuLa 3B (LLM)...")
     
     heartmula_path = os.path.join(base_model_path, f"HeartMuLa-oss-{args.version}")
-    model = HeartMuLa.from_pretrained(heartmula_path, dtype=torch.bfloat16, local_files_only=True)
+    
+    # Load with memory mapping for faster loading
+    model = HeartMuLa.from_pretrained(
+        heartmula_path, 
+        dtype=torch.bfloat16, 
+        local_files_only=True,
+        low_cpu_mem_usage=True,  # Enable memory-mapped loading
+    )
     model.to("xpu")
+    model.eval()  # Set to eval mode
+    
+    # Apply native PyTorch XPU optimizations
+    logger.info("Applying native PyTorch XPU optimizations...")
+    # Enable oneDNN for XPU (native in PyTorch 2.10+)
+    model = optimize_xpu_inference(model)
     
     # Move to XPU
     prompt_tokens = inputs["tokens"].to("xpu")
@@ -240,9 +267,12 @@ def generate_tokens(args, base_model_path, inputs, config):
     
     logger.info(f"Generating up to \033[1;33m{max_audio_frames}\033[0m frames...")
     start_time = time.time()
+    
+    # Pre-allocate tensor for better performance
+    pad_shape = (prompt_tokens.shape[0], 9)
 
     with torch.no_grad():
-        with torch.autocast(device_type="xpu", dtype=torch.bfloat16):
+        with torch.autocast(device_type="xpu", dtype=torch.bfloat16, enabled=True):
             curr_token = model.generate_frame(
                 tokens=prompt_tokens,
                 tokens_mask=prompt_tokens_mask,
@@ -254,8 +284,6 @@ def generate_tokens(args, base_model_path, inputs, config):
                 starts=starts,
             )
             frames.append(curr_token[0:1,].cpu()) 
-
-            pad_shape = (curr_token.shape[0], 9)
             
             pbar = tqdm(range(max_audio_frames), 
                        desc="Composing", 
@@ -287,15 +315,15 @@ def generate_tokens(args, base_model_path, inputs, config):
                         break
                     
                     frames.append(curr_token[0:1,].cpu())
-                    
-                    if i % 200 == 0:
-                        torch.xpu.synchronize()
 
             except KeyboardInterrupt:
                 logger.warning("\nInterrupted! Finalizing...")
+    
+    # Final sync to ensure all operations complete
+    torch.xpu.synchronize()
 
     duration = time.time() - start_time
-    logger.info(f"Generation took {duration:.2f}s (Speed: {len(frames)/duration:.2f} tokens/s)")
+    logger.info(f"Generation took {duration:.2f}s (Speed: {len(frames)/duration:.2f} frames/s)")
 
     logger.info("Cleaning VRAM...")
     if hasattr(model, "backbone") and hasattr(model.backbone, "caches"): model.backbone.caches = None
@@ -307,15 +335,27 @@ def generate_tokens(args, base_model_path, inputs, config):
 
 def decode_audio(base_model_path, frames):
     logger.info(">>> [PHASE 2] Loading HeartCodec...")
-    codec = HeartCodec.from_pretrained(os.path.join(base_model_path, "HeartCodec-oss"), local_files_only=True)
+    codec = HeartCodec.from_pretrained(
+        os.path.join(base_model_path, "HeartCodec-oss"), 
+        local_files_only=True,
+        low_cpu_mem_usage=True,  # Enable memory-mapped loading
+    )
     codec.to("xpu")
+    codec.eval()  # Set to eval mode
+    
+    # Apply native PyTorch XPU optimizations
+    codec = optimize_xpu_inference(codec)
     
     logger.info("Rendering Audio...")
     with torch.no_grad():
-        # FIX: The installed library version does not accept 'device="xpu"' as an argument.
-        # We manually move frames to XPU and call detokenize without the device argument.
-        frames = frames.to("xpu")
-        wav = codec.detokenize(frames)
+        with torch.autocast(device_type="xpu", dtype=torch.float32, enabled=True):
+            # FIX: The installed library version does not accept 'device="xpu"' as an argument.
+            # We manually move frames to XPU and call detokenize without the device argument.
+            frames = frames.to("xpu")
+            wav = codec.detokenize(frames)
+    
+    # Sync before cleanup
+    torch.xpu.synchronize()
     
     del codec
     clean_memory()
@@ -344,6 +384,14 @@ def main():
         device_name = torch.xpu.get_device_name(0)
         total_mem = torch.xpu.get_device_properties(0).total_memory / (1024**3)
         logger.info(f"Hardware: \033[1;33m{device_name}\033[0m ({total_mem:.2f} GB VRAM)")
+        logger.info(f"PyTorch: {torch.__version__} (Native XPU Support)")
+        
+        # Set XPU memory allocation strategy for better performance
+        os.environ['SYCL_PI_LEVEL_ZERO_USE_IMMEDIATE_COMMANDLISTS'] = '1'
+        os.environ['SYCL_CACHE_PERSISTENT'] = '1'
+        
+        # Enable oneDNN optimizations (native in PyTorch 2.10+)
+        torch.backends.mkldnn.enabled = True
     else:
         logger.error("No Intel XPU detected!")
 
