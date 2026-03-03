@@ -53,7 +53,7 @@ Join on Discord! [<img alt="join discord" src="https://img.shields.io/discord/84
 
 - ⚖️ **03 Feb. 2026**
 
-  We have released our [HeartMuLa-Benchmark](https://modelscope.cn/datasets/HeartMuLa/HeartMuLa-Benchmark) as introduced in our [paper](https://arxiv.org/pdf/2601.10547). This benchmark comprises heterogeneous AI-generated lyrics and tags across diverse languages and genres, providing a rigorous and fair evaluation framework.
+  We have released our [HeartMuLa-Benchmark](https://modelscope.cn/datasets/HeartMuLa/HeartMuLa-Benchmark) (referred to as **HeartBeats Benchmark** in our paper) as introduced in our [paper](https://arxiv.org/pdf/2601.10547). This benchmark comprises heterogeneous AI-generated lyrics and tags across diverse languages and genres, providing a rigorous and fair evaluation framework.
   
 - 🚀 **23 Jan. 2026**
 
