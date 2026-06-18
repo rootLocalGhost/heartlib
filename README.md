@@ -47,6 +47,10 @@ Our latest internal version of HeartMuLa-7B achieves **comparable performance wi
 ## 📰 News
 Join on Discord! [<img alt="join discord" src="https://img.shields.io/discord/842440537755353128?color=%237289da&logo=discord"/>](https://discord.gg/rkC4VmpH)
 
+- 🚀 **10 Apr. 2026**
+
+  We launched online demo spaces on [Hugging Face](https://huggingface.co/spaces/HeartMuLa/heartmula) and [ModelScope](https://www.modelscope.cn/studios/HeartMuLa/heartmula/).
+
 - 🚀 **13 Feb. 2026**
 
   We released our **HeartMuLa-oss-3B-happy-new-year** version. This version is currently the best open-sourced model in terms of lyrics controllability and music quality. We recommend using **HeartMuLa-oss-3B-happy-new-year** and **HeartCodec-oss-20260123** for music generation.
